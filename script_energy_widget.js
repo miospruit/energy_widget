@@ -40,7 +40,7 @@ function energyUrl({ gas = false, fromDate, tillDate }) {
     "https://api.energyzero.nl/v1/energyprices?",
     `fromDate=${encodeURIComponent(fromDate)}&`,
     `tillDate=${encodeURIComponent(tillDate)}&`,
-    "interval=1&",
+    "interval=4&",
     `usageType=${gas ? "3" : "1"}&`,
     "inclBtw=true",
   ].join("");
@@ -82,12 +82,19 @@ function rect(ctx, x, y, w, h, color) {
   ctx.fillRect(new Rect(x, y, w, h));
 }
 
+function normalizeRows(res) {
+  return (res.all_in_with_vat || [])
+    .map((row) => ({
+      readingDate: row.readingDate || row.from || row.date,
+      price: row.price?.value,
+    }))
+    .filter((row) => row.readingDate && Number.isFinite(row.price))
+    .sort((a, b) => new Date(a.readingDate) - new Date(b.readingDate));
+}
+
 async function loadUrl(url) {
   const res = await new Request(url).loadJSON();
-
-  return (res.Prices || [])
-    .filter((x) => Number.isFinite(x.price))
-    .sort((a, b) => new Date(a.readingDate) - new Date(b.readingDate));
+  return normalizeRows(res);
 }
 
 async function loadDay(gas = false) {
