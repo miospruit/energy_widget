@@ -40,7 +40,7 @@ function energyUrl({ gas = false, fromDate, tillDate }) {
     "https://api.energyzero.nl/v1/energyprices?",
     `fromDate=${encodeURIComponent(fromDate)}&`,
     `tillDate=${encodeURIComponent(tillDate)}&`,
-    "interval=4&",
+    "interval=1&",
     `usageType=${gas ? "3" : "1"}&`,
     "inclBtw=true",
   ].join("");
