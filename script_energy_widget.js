@@ -1,129 +1,94 @@
 const W = 2030;
 const H = 950;
 
-const BRAND = {
+const C = {
+  bg: "#e9e6d8",
+  card: "#ffffff",
+  text: "#4b5468",
+  muted: "#4b546899",
   orange: "#ef7d17",
-  darkBlue: "#4b5468",
-  white: "#ffffff",
-  grey: "#7f7466",
-  sand: "#e9e6d8",
-  seaBlue: "#6ba8a3",
+  blue: "#6ba8a3",
   lightBlue: "#def2f0",
   purple: "#9494b2",
-  pink: "#e2ccc3",
-  danger: "#ef7d17",
-  free: "#6ba8a3",
-  negative: "#4b5468",
-};
-
-const THEME = {
-  bg: BRAND.sand,
-  panel: BRAND.white,
-  text: BRAND.darkBlue,
-  muted: "#4b546899",
-  avg: "#4b546855",
-  cheap: BRAND.seaBlue,
-  normal: BRAND.purple,
-  expensive: BRAND.orange,
-  free: BRAND.free,
-  negative: BRAND.negative,
-  pastAlpha: "55",
+  green: "#61E294",
+  darkGreen: "#009494",
+  line: "#4b546844",
 };
 
 const now = new Date();
 const hour = now.getHours();
+
 const day = now.toLocaleDateString("nl-NL", { weekday: "long" }).toUpperCase();
 
-const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-const dayEnd = new Date(
-  now.getFullYear(),
-  now.getMonth(),
-  now.getDate(),
-  23,
-  59,
-  59,
-  999,
+const today = [now.getFullYear(), now.getMonth(), now.getDate()];
+const start = encodeURIComponent(new Date(...today).toISOString());
+const end = encodeURIComponent(
+  new Date(...today, 23, 59, 59, 999).toISOString(),
 );
 
 const nf = ["nl-NL", { style: "currency", currency: "EUR" }];
 
-function energyUrl(type) {
-  const params = [
-    `fromDate=${encodeURIComponent(dayStart.toISOString())}`,
-    `tillDate=${encodeURIComponent(dayEnd.toISOString())}`,
-    "interval=4",
-    `usageType=${type}`,
+function url(gas = false) {
+  return [
+    "https://api.energyzero.nl/v1/energyprices?",
+    `fromDate=${start}&`,
+    `tillDate=${end}&`,
+    "interval=4&",
+    `usageType=${gas ? "3" : "1"}&`,
     "inclBtw=true",
-  ];
-
-  return `https://api.energyzero.nl/v1/energyprices?${params.join("&")}`;
+  ].join("");
 }
 
-async function loadPrices(type) {
-  const res = await new Request(energyUrl(type)).loadJSON();
+function money(v) {
+  return Number.isFinite(v) ? v.toLocaleString(...nf) : "—";
+}
+
+function text(ctx, value, x, y, w, h, font, color = C.text, align = "left") {
+  ctx.setTextColor(new Color(color));
+  ctx.setFont(font);
+
+  if (align === "center") ctx.setTextAlignedCenter();
+  else if (align === "right") ctx.setTextAlignedRight();
+  else ctx.setTextAlignedLeft();
+
+  ctx.drawTextInRect(String(value), new Rect(x, y, w, h));
+}
+
+function rect(ctx, x, y, w, h, color) {
+  ctx.setFillColor(new Color(color));
+  ctx.fillRect(new Rect(x, y, w, h));
+}
+
+async function load(type) {
+  const res = await new Request(url(type === "gas")).loadJSON();
+
   return (res.Prices || []).sort(
     (a, b) => new Date(a.readingDate) - new Date(b.readingDate),
   );
 }
 
-function money(value) {
-  if (!Number.isFinite(value)) return "—";
-  return value.toLocaleString(...nf);
-}
-
-function roundedRect(ctx, x, y, w, h, r, color) {
-  const path = new Path();
-  path.move(new Point(x + r, y));
-  path.addLine(new Point(x + w - r, y));
-  path.addQuadCurve(new Point(x + w, y), new Point(x + w, y + r));
-  path.addLine(new Point(x + w, y + h - r));
-  path.addQuadCurve(new Point(x + w, y + h), new Point(x + w - r, y + h));
-  path.addLine(new Point(x + r, y + h));
-  path.addQuadCurve(new Point(x, y + h), new Point(x, y + h - r));
-  path.addLine(new Point(x, y + r));
-  path.addQuadCurve(new Point(x, y), new Point(x + r, y));
-
-  ctx.setFillColor(new Color(color));
-  ctx.addPath(path);
-  ctx.fillPath();
-}
-
-function drawText(ctx, text, rect, font, color, align = "left") {
-  ctx.setFont(font);
-  ctx.setTextColor(new Color(color));
-
-  if (align === "right") ctx.setTextAlignedRight();
-  else if (align === "center") ctx.setTextAlignedCenter();
-  else ctx.setTextAlignedLeft();
-
-  ctx.drawTextInRect(text, rect);
-}
-
-function barColor(price, normalized, avg, high) {
-  if (price < -0.17) return THEME.negative;
-  if (price <= 0) return THEME.free;
-  if (normalized < avg) return THEME.cheap;
-  if (normalized > high) return THEME.expensive;
-  return THEME.normal;
+function colorFor(price, normalized, avg, high) {
+  if (price < -0.17) return C.darkGreen;
+  if (price <= 0) return C.green;
+  if (normalized < avg) return C.blue;
+  if (normalized > high) return C.orange;
+  return C.purple;
 }
 
 async function main() {
-  const [elecRows, gasRows] = await Promise.all([loadPrices(1), loadPrices(3)]);
+  const [elecRows, gasRows] = await Promise.all([load("elec"), load("gas")]);
 
-  const prices = elecRows.map((row) => row.price).filter(Number.isFinite);
+  const prices = elecRows.map((x) => x.price).filter(Number.isFinite);
+  if (!prices.length) throw new Error("Geen stroomprijzen gevonden");
 
-  const latestGas = gasRows.reverse().find((row) => Number.isFinite(row.price));
-  const gasPrice = latestGas?.price ?? NaN;
-  const gasToday = latestGas
-    ? new Date(latestGas.readingDate) >=
-      new Date(now.getFullYear(), now.getMonth(), now.getDate(), 6)
-    : false;
+  const currentPrice = prices[hour] ?? prices[prices.length - 1];
 
-  if (!prices.length) throw new Error("No electricity prices found");
+  const gasRow = gasRows.reverse().find((x) => Number.isFinite(x.price));
+  const gasPrice = gasRow?.price ?? NaN;
 
   const min = Math.min(...prices);
   let max = Math.max(...prices);
-  if (max - min === 0) max = min + 0.01;
+  if (max === min) max = min + 0.01;
 
   const normalized = prices.map((p) => (p - min) / (max - min));
   const avg = normalized.reduce((a, b) => a + b, 0) / normalized.length;
@@ -133,125 +98,165 @@ async function main() {
   ctx.size = new Size(W, H);
   ctx.opaque = false;
 
-  ctx.setFillColor(new Color(THEME.bg));
-  ctx.fillRect(new Rect(0, 0, W, H));
+  rect(ctx, 0, 0, W, H, C.bg);
+  rect(ctx, 70, 60, W - 140, H - 120, C.card);
 
-  roundedRect(ctx, 70, 60, W - 140, H - 120, 60, THEME.panel);
-
-  drawText(
+  // Header
+  text(ctx, day, 130, 110, 600, 80, Font.heavySystemFont(68), C.text);
+  text(
     ctx,
-    day,
-    new Rect(130, 115, 900, 90),
-    Font.heavySystemFont(70),
-    THEME.text,
-  );
-  drawText(
-    ctx,
-    "EnergyZero dagprijzen",
-    new Rect(130, 200, 900, 60),
-    Font.mediumSystemFont(42),
-    THEME.muted,
+    "EnergyZero prijzen vandaag",
+    130,
+    190,
+    800,
+    55,
+    Font.mediumSystemFont(38),
+    C.muted,
   );
 
-  drawText(
+  // Current price block
+  text(ctx, "NU", 130, 300, 160, 70, Font.heavySystemFont(60), C.orange);
+  text(ctx, `${hour}:00`, 130, 372, 220, 60, Font.boldSystemFont(46), C.text);
+  text(
     ctx,
-    "⚡",
-    new Rect(130, 310, 80, 80),
-    Font.regularSystemFont(64),
-    BRAND.orange,
-  );
-  drawText(
-    ctx,
-    `${money(min)} – ${money(Math.max(...prices))}`,
-    new Rect(230, 318, 700, 70),
-    Font.boldSystemFont(52),
-    THEME.text,
+    money(currentPrice),
+    330,
+    292,
+    520,
+    120,
+    Font.heavySystemFont(92),
+    C.text,
   );
 
-  drawText(
+  // Summary block
+  text(ctx, "Laagste", 980, 300, 220, 45, Font.mediumSystemFont(34), C.muted);
+  text(ctx, money(min), 980, 345, 260, 65, Font.boldSystemFont(48), C.blue);
+
+  text(ctx, "Hoogste", 1270, 300, 220, 45, Font.mediumSystemFont(34), C.muted);
+  text(
     ctx,
-    "🔥",
-    new Rect(980, 310, 80, 80),
-    Font.regularSystemFont(64),
-    BRAND.orange,
+    money(Math.max(...prices)),
+    1270,
+    345,
+    260,
+    65,
+    Font.boldSystemFont(48),
+    C.orange,
   );
-  drawText(
+
+  text(ctx, "Gas", 1560, 300, 160, 45, Font.mediumSystemFont(34), C.muted);
+  text(
     ctx,
     money(gasPrice),
-    new Rect(1080, 318, 450, 70),
-    Font.boldSystemFont(52),
-    gasToday ? THEME.text : "#ef7d1777",
+    1560,
+    345,
+    300,
+    65,
+    Font.boldSystemFont(48),
+    C.text,
   );
 
-  const graph = { x: 130, y: 440, w: W - 260, h: 330 };
-  const gap = 12;
-  const barW = (graph.w - gap * (normalized.length - 1)) / normalized.length;
+  // Graph
+  const gx = 130;
+  const gy = 500;
+  const gw = W - 260;
+  const gh = 270;
+
+  const gap = 10;
+  const barW = (gw - gap * 23) / 24;
+
+  // Average line
+  const avgY = gy + gh * (1 - avg);
+  rect(ctx, gx, avgY, gw, 6, C.line);
 
   normalized.forEach((n, i) => {
-    const barH = Math.max(graph.h * n, 12);
-    const x = graph.x + i * (barW + gap);
-    const y = graph.y + graph.h - barH;
-
-    let color = barColor(prices[i], n, avg, high);
-    if (i < hour) color += THEME.pastAlpha;
-
-    roundedRect(ctx, x, y, barW, barH, 10, color);
-
+    const price = prices[i];
     const active = i === hour;
-    drawText(
-      ctx,
-      String(i),
-      new Rect(x, graph.y + graph.h + 22, barW, 50),
-      active ? Font.heavySystemFont(42) : Font.semiboldSystemFont(34),
-      active ? BRAND.orange : THEME.muted,
-      "center",
-    );
+
+    const h = Math.max(gh * n, 12);
+    const x = gx + i * (barW + gap);
+    const y = gy + gh - h;
+
+    let color = colorFor(price, n, avg, high);
+
+    if (i < hour && !active) color += "55";
+
+    if (active) {
+      rect(ctx, x - 8, gy - 34, barW + 16, gh + 46, "#ef7d1722");
+      rect(ctx, x - 4, y - 8, barW + 8, h + 8, C.orange);
+      text(
+        ctx,
+        "NU",
+        x - 20,
+        gy - 88,
+        barW + 40,
+        46,
+        Font.heavySystemFont(34),
+        C.orange,
+        "center",
+      );
+    } else {
+      rect(ctx, x, y, barW, h, color);
+    }
+
+    const showLabel = active || i % 3 === 0 || i === 23;
+
+    if (showLabel) {
+      text(
+        ctx,
+        String(i),
+        x - 10,
+        gy + gh + 28,
+        barW + 20,
+        48,
+        active ? Font.heavySystemFont(44) : Font.boldSystemFont(34),
+        active ? C.orange : C.text,
+        "center",
+      );
+    }
   });
 
-  const avgY = graph.y + graph.h * (1 - avg);
-  const avgPath = new Path();
-  avgPath.move(new Point(graph.x, avgY));
-  avgPath.addLine(new Point(graph.x + graph.w, avgY));
-  ctx.addPath(avgPath);
-  ctx.setStrokeColor(new Color(THEME.avg));
-  ctx.setLineWidth(8);
-  ctx.strokePath();
-
-  drawText(
+  // Legend
+  text(
     ctx,
-    "goedkoop",
-    new Rect(130, 810, 260, 45),
-    Font.mediumSystemFont(34),
-    THEME.cheap,
+    "groen = gratis/negatief",
+    130,
+    835,
+    420,
+    45,
+    Font.mediumSystemFont(32),
+    C.muted,
   );
-  drawText(
+  text(
     ctx,
-    "normaal",
-    new Rect(390, 810, 260, 45),
-    Font.mediumSystemFont(34),
-    THEME.normal,
+    "blauw = goedkoop",
+    560,
+    835,
+    330,
+    45,
+    Font.mediumSystemFont(32),
+    C.muted,
   );
-  drawText(
+  text(
     ctx,
-    "duur",
-    new Rect(650, 810, 260, 45),
-    Font.mediumSystemFont(34),
-    THEME.expensive,
-  );
-  drawText(
-    ctx,
-    "≤ €0",
-    new Rect(910, 810, 260, 45),
-    Font.mediumSystemFont(34),
-    THEME.free,
+    "oranje = duur",
+    900,
+    835,
+    300,
+    45,
+    Font.mediumSystemFont(32),
+    C.muted,
   );
 
   const widget = new ListWidget();
-  widget.backgroundColor = new Color(THEME.bg);
+  widget.backgroundColor = new Color(C.bg);
   widget.backgroundImage = ctx.getImage();
 
-  if (config.runsInWidget) Script.setWidget(widget);
-  else await widget.presentMedium();
+  if (config.runsInWidget) {
+    Script.setWidget(widget);
+  } else {
+    await widget.presentMedium();
+  }
 
   Script.complete();
 }
