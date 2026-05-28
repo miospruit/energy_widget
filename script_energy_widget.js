@@ -24,42 +24,28 @@ const todayStr = [
   String(now.getDate()).padStart(2, "0"),
 ].join("-");
 
-const dayStart = `${todayStr}T00:00:00.000Z`;
-const dayEnd = `${todayStr}T23:59:59.999Z`;
-
-const currentStart = new Date(now);
-currentStart.setMinutes(0, 0, 0);
-
-const currentEnd = new Date(currentStart);
-currentEnd.setMinutes(59, 59, 999);
+const todayApiStr = [
+  String(now.getDate()).padStart(2, "0"),
+  String(now.getMonth() + 1).padStart(2, "0"),
+  now.getFullYear(),
+].join("-");
 
 const nf = ["nl-NL", { style: "currency", currency: "EUR" }];
 
-function energyUrl({ gas = false, fromDate, tillDate }) {
-  return [
-    "https://api.energyzero.nl/v1/energyprices?",
-    `fromDate=${encodeURIComponent(fromDate)}&`,
-    `tillDate=${encodeURIComponent(tillDate)}&`,
-    "interval=4&",
-    `usageType=${gas ? "3" : "1"}&`,
-    "inclBtw=true",
-  ].join("");
+function energyUrl({ gas = false }) {
+  const params = [
+    `date=${encodeURIComponent(todayApiStr)}`,
+    `interval=${encodeURIComponent(gas ? "INTERVAL_DAY" : "INTERVAL_HOUR")}`,
+    `energy_type=${encodeURIComponent(
+      gas ? "ENERGY_TYPE_GAS" : "ENERGY_TYPE_ELECTRICITY",
+    )}`,
+  ].join("&");
+
+  return `https://public.api.energyzero.nl/v1/prices?${params}`;
 }
 
 function dayUrl(gas = false) {
-  return energyUrl({
-    gas,
-    fromDate: dayStart,
-    tillDate: dayEnd,
-  });
-}
-
-function currentHourUrl(gas = false) {
-  return energyUrl({
-    gas,
-    fromDate: currentStart.toISOString(),
-    tillDate: currentEnd.toISOString(),
-  });
+  return energyUrl({ gas });
 }
 
 function money(v) {
@@ -82,27 +68,39 @@ function rect(ctx, x, y, w, h, color) {
   ctx.fillRect(new Rect(x, y, w, h));
 }
 
-function normalizeRows(res) {
-  return (res.all_in_with_vat || [])
-    .map((row) => ({
-      readingDate: row.readingDate || row.from || row.date,
-      price: row.price?.value,
-    }))
-    .filter((row) => row.readingDate && Number.isFinite(row.price))
-    .sort((a, b) => new Date(a.readingDate) - new Date(b.readingDate));
+function priceValue(row) {
+  const value = row?.price?.value ?? row?.price;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+function isTodayLocal(isoDate) {
+  const d = new Date(isoDate);
+  const local = [
+    d.getFullYear(),
+    String(d.getMonth() + 1).padStart(2, "0"),
+    String(d.getDate()).padStart(2, "0"),
+  ].join("-");
+
+  return local === todayStr;
 }
 
 async function loadUrl(url) {
   const res = await new Request(url).loadJSON();
-  return normalizeRows(res);
+
+  return (res.all_in_with_vat || [])
+    .map((x) => ({
+      readingDate: x.start,
+      endDate: x.end,
+      price: priceValue(x),
+    }))
+    .filter((x) => Number.isFinite(x.price))
+    .filter((x) => isTodayLocal(x.readingDate))
+    .sort((a, b) => new Date(a.readingDate) - new Date(b.readingDate));
 }
 
 async function loadDay(gas = false) {
   return loadUrl(dayUrl(gas));
-}
-
-async function loadCurrentHour(gas = false) {
-  return loadUrl(currentHourUrl(gas));
 }
 
 function colorFor(price, normalized, avg, high) {
@@ -117,31 +115,31 @@ function findCurrentRow(rows) {
   return (
     rows.find((row) => {
       const start = new Date(row.readingDate);
-      const end = new Date(start.getTime() + 60 * 60 * 1000);
+      const end = row.endDate
+        ? new Date(row.endDate)
+        : new Date(start.getTime() + 60 * 60 * 1000);
+
       return now >= start && now < end;
     }) ?? null
   );
 }
 
 async function main() {
-  const [priceRows, gasRows, currentRows] = await Promise.all([
+  const [priceRows, gasRows] = await Promise.all([
     loadDay(false),
     loadDay(true),
-    loadCurrentHour(false),
   ]);
 
   if (!priceRows.length) throw new Error("Geen stroomprijzen gevonden");
 
   const currentRow =
-    currentRows[0] ??
-    findCurrentRow(priceRows) ??
-    priceRows[priceRows.length - 1];
+    findCurrentRow(priceRows) ?? priceRows[priceRows.length - 1];
 
   const prices = priceRows.map((x) => x.price);
   const currentPrice = currentRow.price;
   const currentHourLabel = now.getHours();
 
-  const gasRow = gasRows[gasRows.length - 1];
+  const gasRow = findCurrentRow(gasRows) ?? gasRows[gasRows.length - 1];
   const gasPrice = gasRow?.price ?? NaN;
 
   const min = Math.min(...prices);
@@ -236,7 +234,9 @@ async function main() {
   priceRows.forEach((row, i) => {
     const price = row.price;
     const rowStart = new Date(row.readingDate);
-    const rowEnd = new Date(rowStart.getTime() + 60 * 60 * 1000);
+    const rowEnd = row.endDate
+      ? new Date(row.endDate)
+      : new Date(rowStart.getTime() + 60 * 60 * 1000);
     const rowHour = rowStart.getHours();
 
     const active = now >= rowStart && now < rowEnd;
