@@ -8,7 +8,6 @@ const C = {
   muted: "#4b546899",
   orange: "#ef7d17",
   blue: "#6ba8a3",
-  lightBlue: "#def2f0",
   purple: "#9494b2",
   green: "#61E294",
   darkGreen: "#009494",
@@ -16,14 +15,18 @@ const C = {
 };
 
 const now = new Date();
-const hour = now.getHours();
 
 const day = now.toLocaleDateString("nl-NL", { weekday: "long" }).toUpperCase();
 
-const today = [now.getFullYear(), now.getMonth(), now.getDate()];
-const start = encodeURIComponent(new Date(...today).toISOString());
-const end = encodeURIComponent(
-  new Date(...today, 23, 59, 59, 999).toISOString(),
+const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+const dayEnd = new Date(
+  now.getFullYear(),
+  now.getMonth(),
+  now.getDate(),
+  23,
+  59,
+  59,
+  999,
 );
 
 const nf = ["nl-NL", { style: "currency", currency: "EUR" }];
@@ -31,8 +34,8 @@ const nf = ["nl-NL", { style: "currency", currency: "EUR" }];
 function url(gas = false) {
   return [
     "https://api.energyzero.nl/v1/energyprices?",
-    `fromDate=${start}&`,
-    `tillDate=${end}&`,
+    `fromDate=${encodeURIComponent(dayStart.toISOString())}&`,
+    `tillDate=${encodeURIComponent(dayEnd.toISOString())}&`,
     "interval=4&",
     `usageType=${gas ? "3" : "1"}&`,
     "inclBtw=true",
@@ -59,12 +62,12 @@ function rect(ctx, x, y, w, h, color) {
   ctx.fillRect(new Rect(x, y, w, h));
 }
 
-async function load(type) {
-  const res = await new Request(url(type === "gas")).loadJSON();
+async function load(gas = false) {
+  const res = await new Request(url(gas)).loadJSON();
 
-  return (res.Prices || []).sort(
-    (a, b) => new Date(a.readingDate) - new Date(b.readingDate),
-  );
+  return (res.Prices || [])
+    .filter((x) => Number.isFinite(x.price))
+    .sort((a, b) => new Date(a.readingDate) - new Date(b.readingDate));
 }
 
 function colorFor(price, normalized, avg, high) {
@@ -75,19 +78,33 @@ function colorFor(price, normalized, avg, high) {
   return C.purple;
 }
 
+function findCurrentRow(rows) {
+  return (
+    rows.find((row) => {
+      const start = new Date(row.readingDate);
+      const end = new Date(start.getTime() + 60 * 60 * 1000);
+      return now >= start && now < end;
+    }) ?? rows[rows.length - 1]
+  );
+}
+
 async function main() {
-  const [elecRows, gasRows] = await Promise.all([load("elec"), load("gas")]);
+  const [priceRows, gasRows] = await Promise.all([load(false), load(true)]);
 
-  const prices = elecRows.map((x) => x.price).filter(Number.isFinite);
-  if (!prices.length) throw new Error("Geen stroomprijzen gevonden");
+  if (!priceRows.length) throw new Error("Geen stroomprijzen gevonden");
 
-  const currentPrice = prices[hour] ?? prices[prices.length - 1];
+  const prices = priceRows.map((x) => x.price);
+  const currentRow = findCurrentRow(priceRows);
+  const currentPrice = currentRow.price;
+  const currentHourLabel = new Date(currentRow.readingDate).getHours();
 
-  const gasRow = gasRows.reverse().find((x) => Number.isFinite(x.price));
+  const gasRow = gasRows[gasRows.length - 1];
   const gasPrice = gasRow?.price ?? NaN;
 
   const min = Math.min(...prices);
   let max = Math.max(...prices);
+  const realMax = max;
+
   if (max === min) max = min + 0.01;
 
   const normalized = prices.map((p) => (p - min) / (max - min));
@@ -101,7 +118,6 @@ async function main() {
   rect(ctx, 0, 0, W, H, C.bg);
   rect(ctx, 70, 60, W - 140, H - 120, C.card);
 
-  // Header
   text(ctx, day, 130, 110, 600, 80, Font.heavySystemFont(68), C.text);
   text(
     ctx,
@@ -114,9 +130,17 @@ async function main() {
     C.muted,
   );
 
-  // Current price block
   text(ctx, "NU", 130, 300, 160, 70, Font.heavySystemFont(60), C.orange);
-  text(ctx, `${hour}:00`, 130, 372, 220, 60, Font.boldSystemFont(46), C.text);
+  text(
+    ctx,
+    `${currentHourLabel}:00`,
+    130,
+    372,
+    220,
+    60,
+    Font.boldSystemFont(46),
+    C.text,
+  );
   text(
     ctx,
     money(currentPrice),
@@ -128,14 +152,13 @@ async function main() {
     C.text,
   );
 
-  // Summary block
   text(ctx, "Laagste", 980, 300, 220, 45, Font.mediumSystemFont(34), C.muted);
   text(ctx, money(min), 980, 345, 260, 65, Font.boldSystemFont(48), C.blue);
 
   text(ctx, "Hoogste", 1270, 300, 220, 45, Font.mediumSystemFont(34), C.muted);
   text(
     ctx,
-    money(Math.max(...prices)),
+    money(realMax),
     1270,
     345,
     260,
@@ -156,30 +179,31 @@ async function main() {
     C.text,
   );
 
-  // Graph
   const gx = 130;
   const gy = 500;
   const gw = W - 260;
   const gh = 270;
 
   const gap = 10;
-  const barW = (gw - gap * 23) / 24;
+  const barW = (gw - gap * (priceRows.length - 1)) / priceRows.length;
 
-  // Average line
   const avgY = gy + gh * (1 - avg);
   rect(ctx, gx, avgY, gw, 6, C.line);
 
-  normalized.forEach((n, i) => {
-    const price = prices[i];
-    const active = i === hour;
+  priceRows.forEach((row, i) => {
+    const price = row.price;
+    const rowStart = new Date(row.readingDate);
+    const rowHour = rowStart.getHours();
+    const active = row === currentRow;
 
+    const n = normalized[i];
     const h = Math.max(gh * n, 12);
     const x = gx + i * (barW + gap);
     const y = gy + gh - h;
 
     let color = colorFor(price, n, avg, high);
 
-    if (i < hour && !active) color += "55";
+    if (rowStart < now && !active) color += "55";
 
     if (active) {
       rect(ctx, x - 8, gy - 34, barW + 16, gh + 46, "#ef7d1722");
@@ -199,12 +223,12 @@ async function main() {
       rect(ctx, x, y, barW, h, color);
     }
 
-    const showLabel = active || i % 3 === 0 || i === 23;
+    const showLabel = active || rowHour % 3 === 0 || rowHour === 23;
 
     if (showLabel) {
       text(
         ctx,
-        String(i),
+        String(rowHour),
         x - 10,
         gy + gh + 28,
         barW + 20,
@@ -216,7 +240,6 @@ async function main() {
     }
   });
 
-  // Legend
   text(
     ctx,
     "groen = gratis/negatief",
