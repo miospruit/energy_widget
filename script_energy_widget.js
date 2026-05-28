@@ -16,28 +16,50 @@ const C = {
 
 const now = new Date();
 
+const day = now.toLocaleDateString("nl-NL", { weekday: "long" }).toUpperCase();
+
 const todayStr = [
   now.getFullYear(),
   String(now.getMonth() + 1).padStart(2, "0"),
   String(now.getDate()).padStart(2, "0"),
 ].join("-");
 
-const start = encodeURIComponent(`${todayStr}T00:00:00.000Z`);
-const end = encodeURIComponent(`${todayStr}T23:59:59.999Z`);
+const dayStart = `${todayStr}T00:00:00.000Z`;
+const dayEnd = `${todayStr}T23:59:59.999Z`;
 
-const day = now.toLocaleDateString("nl-NL", { weekday: "long" }).toUpperCase();
+const currentStart = new Date(now);
+currentStart.setMinutes(0, 0, 0);
+
+const currentEnd = new Date(currentStart);
+currentEnd.setMinutes(59, 59, 999);
 
 const nf = ["nl-NL", { style: "currency", currency: "EUR" }];
 
-function url(gas = false) {
+function energyUrl({ gas = false, fromDate, tillDate }) {
   return [
     "https://api.energyzero.nl/v1/energyprices?",
-    `fromDate=${start}&`,
-    `tillDate=${end}&`,
+    `fromDate=${encodeURIComponent(fromDate)}&`,
+    `tillDate=${encodeURIComponent(tillDate)}&`,
     "interval=4&",
     `usageType=${gas ? "3" : "1"}&`,
     "inclBtw=true",
   ].join("");
+}
+
+function dayUrl(gas = false) {
+  return energyUrl({
+    gas,
+    fromDate: dayStart,
+    tillDate: dayEnd,
+  });
+}
+
+function currentHourUrl(gas = false) {
+  return energyUrl({
+    gas,
+    fromDate: currentStart.toISOString(),
+    tillDate: currentEnd.toISOString(),
+  });
 }
 
 function money(v) {
@@ -60,12 +82,20 @@ function rect(ctx, x, y, w, h, color) {
   ctx.fillRect(new Rect(x, y, w, h));
 }
 
-async function load(gas = false) {
-  const res = await new Request(url(gas)).loadJSON();
+async function loadUrl(url) {
+  const res = await new Request(url).loadJSON();
 
   return (res.Prices || [])
     .filter((x) => Number.isFinite(x.price))
     .sort((a, b) => new Date(a.readingDate) - new Date(b.readingDate));
+}
+
+async function loadDay(gas = false) {
+  return loadUrl(dayUrl(gas));
+}
+
+async function loadCurrentHour(gas = false) {
+  return loadUrl(currentHourUrl(gas));
 }
 
 function colorFor(price, normalized, avg, high) {
@@ -82,19 +112,27 @@ function findCurrentRow(rows) {
       const start = new Date(row.readingDate);
       const end = new Date(start.getTime() + 60 * 60 * 1000);
       return now >= start && now < end;
-    }) ?? rows[rows.length - 1]
+    }) ?? null
   );
 }
 
 async function main() {
-  const [priceRows, gasRows] = await Promise.all([load(false), load(true)]);
+  const [priceRows, gasRows, currentRows] = await Promise.all([
+    loadDay(false),
+    loadDay(true),
+    loadCurrentHour(false),
+  ]);
 
   if (!priceRows.length) throw new Error("Geen stroomprijzen gevonden");
 
+  const currentRow =
+    currentRows[0] ??
+    findCurrentRow(priceRows) ??
+    priceRows[priceRows.length - 1];
+
   const prices = priceRows.map((x) => x.price);
-  const currentRow = findCurrentRow(priceRows);
   const currentPrice = currentRow.price;
-  const currentHourLabel = new Date(currentRow.readingDate).getHours();
+  const currentHourLabel = now.getHours();
 
   const gasRow = gasRows[gasRows.length - 1];
   const gasPrice = gasRow?.price ?? NaN;
@@ -191,8 +229,10 @@ async function main() {
   priceRows.forEach((row, i) => {
     const price = row.price;
     const rowStart = new Date(row.readingDate);
+    const rowEnd = new Date(rowStart.getTime() + 60 * 60 * 1000);
     const rowHour = rowStart.getHours();
-    const active = row === currentRow;
+
+    const active = now >= rowStart && now < rowEnd;
 
     const n = normalized[i];
     const h = Math.max(gh * n, 12);
@@ -201,7 +241,7 @@ async function main() {
 
     let color = colorFor(price, n, avg, high);
 
-    if (rowStart < now && !active) color += "55";
+    if (rowEnd < now && !active) color += "55";
 
     if (active) {
       rect(ctx, x - 8, gy - 34, barW + 16, gh + 46, "#ef7d1722");
