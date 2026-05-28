@@ -16,26 +16,24 @@ const C = {
 
 const now = new Date();
 
-const day = now.toLocaleDateString("nl-NL", { weekday: "long" }).toUpperCase();
-
-const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-const dayEnd = new Date(
+const todayStr = [
   now.getFullYear(),
-  now.getMonth(),
-  now.getDate(),
-  23,
-  59,
-  59,
-  999,
-);
+  String(now.getMonth() + 1).padStart(2, "0"),
+  String(now.getDate()).padStart(2, "0"),
+].join("-");
+
+const start = encodeURIComponent(`${todayStr}T00:00:00.000Z`);
+const end = encodeURIComponent(`${todayStr}T23:59:59.999Z`);
+
+const day = now.toLocaleDateString("nl-NL", { weekday: "long" }).toUpperCase();
 
 const nf = ["nl-NL", { style: "currency", currency: "EUR" }];
 
 function url(gas = false) {
   return [
     "https://api.energyzero.nl/v1/energyprices?",
-    `fromDate=${encodeURIComponent(dayStart.toISOString())}&`,
-    `tillDate=${encodeURIComponent(dayEnd.toISOString())}&`,
+    `fromDate=${start}&`,
+    `tillDate=${end}&`,
     "interval=4&",
     `usageType=${gas ? "3" : "1"}&`,
     "inclBtw=true",
