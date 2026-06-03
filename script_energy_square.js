@@ -223,7 +223,7 @@ async function main() {
 
   rect(ctx, 0, 0, W, H, C.bg);
   rect(ctx, 70, 70, W - 140, H - 140, C.card);
-  hexagon(ctx, W / 2 + 190, 610, 360, `${status.color}55`);
+  hexagon(ctx, W / 2 + 190, 610, 432, `${status.color}55`);
 
   text(ctx, "NU", 0, 120, W, 82, Font.heavySystemFont(72), C.orange, "center");
   text(
