@@ -87,6 +87,24 @@ function line(ctx, x1, y1, x2, y2, color, width) {
   ctx.strokePath();
 }
 
+function arc(ctx, cx, cy, radius, startAngle, endAngle, color, width) {
+  const path = new Path();
+  const steps = Math.max(4, Math.ceil(Math.abs(endAngle - startAngle) / 0.08));
+
+  for (let i = 0; i <= steps; i += 1) {
+    const angle = startAngle + ((endAngle - startAngle) * i) / steps;
+    const p = point(cx, cy, radius, angle);
+
+    if (i === 0) path.move(new Point(p.x, p.y));
+    else path.addLine(new Point(p.x, p.y));
+  }
+
+  ctx.setStrokeColor(new Color(color));
+  ctx.setLineWidth(width);
+  ctx.addPath(path);
+  ctx.strokePath();
+}
+
 function hexagon(ctx, cx, cy, radius, color, rotation = Math.PI / 12) {
   const path = new Path();
 
@@ -250,14 +268,6 @@ function colorFor(price, scale) {
   return C.yellow;
 }
 
-function timeLabel(date) {
-  const d = new Date(date);
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
-
-  return `${hh}:${mm}`;
-}
-
 function angleForDate(date) {
   const d = new Date(date);
   const hours = d.getHours() % 12;
@@ -291,25 +301,117 @@ function drawHand(ctx, cx, cy, angle, radius, color, width, tail = 0) {
   line(ctx, back.x, back.y, tip.x, tip.y, color, width);
 }
 
-function drawClock(ctx, slots, currentRow) {
+function priceBand(price, scale) {
+  if (!Number.isFinite(price)) return "missing";
+  if (price <= 0) return "cheap";
+
+  const normalized = (price - scale.min) / (scale.max - scale.min);
+
+  if (normalized < scale.avg) return "cheap";
+  if (normalized > scale.high) return "expensive";
+
+  return "normal";
+}
+
+function drawPriceArcs(ctx, cx, cy, radius, slots, scale) {
+  let arcStart = null;
+  let arcEnd = null;
+
+  function drawPriceArc(start, end) {
+    let startAngle = angleForDate(start);
+    let endAngle = angleForDate(end);
+
+    if (endAngle < startAngle) endAngle += Math.PI * 2;
+
+    arc(ctx, cx, cy, radius, startAngle, endAngle, C.blue, 12);
+  }
+
+  slots.forEach((slot) => {
+    const band = priceBand(slot.price, scale);
+    const start = new Date(slot.readingDate);
+    const end = new Date(start.getTime() + 15 * 60 * 1000);
+
+    if (band === "cheap") {
+      if (!arcStart) arcStart = start;
+      arcEnd = end;
+      return;
+    }
+
+    if (arcStart && arcEnd) {
+      drawPriceArc(arcStart, arcEnd);
+    }
+
+    arcStart = null;
+    arcEnd = null;
+  });
+
+  if (arcStart && arcEnd) {
+    drawPriceArc(arcStart, arcEnd);
+  }
+}
+
+function drawExpensiveDots(ctx, cx, cy, radius, slots, scale) {
+  slots.forEach((slot) => {
+    if (priceBand(slot.price, scale) !== "expensive") return;
+
+    const p = point(cx, cy, radius, angleForDate(slot.readingDate));
+    ellipse(ctx, p.x - 7, p.y - 7, 14, 14, C.orange);
+  });
+}
+
+function drawCardinalNumbers(ctx, cx, cy, radius) {
+  const numbers = [
+    { value: "12", angle: -Math.PI / 2, w: 92 },
+    { value: "3", angle: 0, w: 64 },
+    { value: "6", angle: Math.PI / 2, w: 64 },
+    { value: "9", angle: Math.PI, w: 64 },
+  ];
+
+  numbers.forEach((number) => {
+    const p = point(cx, cy, radius, number.angle);
+
+    text(
+      ctx,
+      number.value,
+      p.x - number.w / 2,
+      p.y - 44,
+      number.w,
+      88,
+      Font.heavySystemFont(68),
+      C.text,
+      "center",
+    );
+  });
+}
+
+function drawClock(ctx, slots, currentRow, rows) {
   const cx = W / 2;
-  const cy = H / 2 - 20;
-  const radius = 360;
-  const pricedSlots = slots.filter((x) => Number.isFinite(x.price));
-  const scale = colorScale(pricedSlots.length ? pricedSlots : [currentRow]);
+  const cy = H / 2;
+  const radius = 414;
+  const pricedRows = rows.filter((x) => Number.isFinite(x.price));
+  const scale = colorScale(pricedRows.length ? pricedRows : [currentRow]);
   const currentColor = colorFor(currentRow.price, scale);
 
   rect(ctx, 0, 0, W, H, C.bg);
-  rect(ctx, 70, 70, W - 140, H - 140, C.card);
-  hexagon(ctx, W / 2 + 155, 575, 420, `${currentColor}55`);
+  rect(ctx, 38, 38, W - 76, H - 76, C.card);
+  hexagon(ctx, W / 2 + 170, 600, 455, `${currentColor}50`);
 
   ellipse(
     ctx,
-    cx - radius - 34,
-    cy - radius - 34,
-    (radius + 34) * 2,
-    (radius + 34) * 2,
+    cx - radius - 18,
+    cy - radius - 18,
+    (radius + 18) * 2,
+    (radius + 18) * 2,
     "#e9e6d899",
+  );
+  strokedEllipse(
+    ctx,
+    cx - radius - 2,
+    cy - radius - 2,
+    (radius + 2) * 2,
+    (radius + 2) * 2,
+    `${currentColor}88`,
+    5,
   );
   strokedEllipse(
     ctx,
@@ -321,6 +423,9 @@ function drawClock(ctx, slots, currentRow) {
     8,
   );
 
+  drawPriceArcs(ctx, cx, cy, radius - 8, slots, scale);
+  drawExpensiveDots(ctx, cx, cy, radius - 28, slots, scale);
+
   for (let i = 0; i < 60; i += 1) {
     const angle = (i / 60) * Math.PI * 2 - Math.PI / 2;
     const hour = i % 5 === 0;
@@ -330,31 +435,14 @@ function drawClock(ctx, slots, currentRow) {
       cx,
       cy,
       angle,
-      hour ? radius - 52 : radius - 30,
-      radius - 8,
+      hour ? radius - 70 : radius - 42,
+      radius - 22,
       hour ? C.text : C.muted,
-      hour ? 10 : 4,
+      hour ? 9 : 3,
     );
   }
 
-  slots.forEach((slot) => {
-    const start = new Date(slot.readingDate);
-    const active =
-      now >= start && now < new Date(start.getTime() + 15 * 60 * 1000);
-    const color = active ? C.orange : colorFor(slot.price, scale);
-    const angle = angleForDate(slot.readingDate);
-
-    drawTick(
-      ctx,
-      cx,
-      cy,
-      angle,
-      radius - 112,
-      radius - 58,
-      color,
-      active ? 20 : 14,
-    );
-  });
+  drawCardinalNumbers(ctx, cx, cy, radius - 126);
 
   const minuteAngle =
     ((now.getMinutes() + now.getSeconds() / 60) / 60) * Math.PI * 2 -
@@ -363,47 +451,25 @@ function drawClock(ctx, slots, currentRow) {
     (((now.getHours() % 12) + now.getMinutes() / 60) / 12) * Math.PI * 2 -
     Math.PI / 2;
 
-  drawHand(ctx, cx, cy, hourAngle, radius - 180, C.text, 22, 36);
-  drawHand(ctx, cx, cy, minuteAngle, radius - 110, C.text, 14, 48);
-  drawHand(ctx, cx, cy, angleForDate(now), radius - 72, C.orange, 5, 58);
+  drawHand(ctx, cx, cy, hourAngle, radius - 210, currentColor, 24, 34);
+  drawHand(ctx, cx, cy, minuteAngle, radius - 120, currentColor, 14, 50);
+  drawHand(ctx, cx, cy, angleForDate(now), radius - 84, C.orange, 4, 62);
 
-  ellipse(ctx, cx - 28, cy - 28, 56, 56, C.orange);
-  ellipse(ctx, cx - 13, cy - 13, 26, 26, C.card);
-
-  rect(ctx, cx - 230, cy + 205, 460, 132, `${C.card}ee`);
-  text(
-    ctx,
-    "NU",
-    cx - 210,
-    cy + 226,
-    120,
-    46,
-    Font.heavySystemFont(36),
-    C.orange,
-    "center",
-  );
-  text(
-    ctx,
-    timeLabel(currentRow.readingDate),
-    cx + 88,
-    cy + 226,
-    120,
-    46,
-    Font.boldSystemFont(34),
-    C.muted,
-    "center",
-  );
+  ellipse(ctx, cx - 148, cy + 118, 296, 86, `${C.card}ee`);
   text(
     ctx,
     money(currentRow.price),
-    cx - 200,
-    cy + 272,
-    400,
+    cx - 132,
+    cy + 132,
+    264,
     58,
     Font.heavySystemFont(52),
     C.text,
     "center",
   );
+
+  ellipse(ctx, cx - 30, cy - 30, 60, 60, currentColor);
+  ellipse(ctx, cx - 12, cy - 12, 24, 24, C.card);
 }
 
 async function main() {
@@ -418,7 +484,7 @@ async function main() {
   ctx.size = new Size(W, H);
   ctx.opaque = false;
 
-  drawClock(ctx, slots, currentRow);
+  drawClock(ctx, slots, currentRow, rows);
 
   const widget = new ListWidget();
   widget.backgroundColor = new Color(C.bg);
