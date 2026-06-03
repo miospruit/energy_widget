@@ -3,7 +3,7 @@ const H = 950;
 
 const C = {
   bg: "#e9e6d8",
-  card: "#ffffff",
+  card: "#e9e6d8",
   text: "#4b5468",
   muted: "#4b546899",
   orange: "#ef7d17",
@@ -107,6 +107,18 @@ function hoursUntil(date) {
   return Math.max(0, Math.ceil(ms / (60 * 60 * 1000)));
 }
 
+function hourLabel(date) {
+  return `${new Date(date).getHours()}:00`;
+}
+
+function changeTitle(label, date) {
+  const ms = new Date(date) - now;
+
+  if (ms < 60 * 60 * 1000) return `${label} binnen 1u`;
+
+  return `${label} over ${hoursUntil(date)}u`;
+}
+
 function statusFor(rows, currentIndex) {
   const current = rows[currentIndex];
   const currentPrice = current.price;
@@ -126,16 +138,15 @@ function statusFor(rows, currentIndex) {
     return {
       color: C.green,
       title: "Goedkoop nu",
-      subtitle: "Laagste moment vandaag",
+      subtitle: "Laagste vandaag",
     };
   }
 
   if (cheaperSoon) {
-    const h = hoursUntil(cheaperSoon.readingDate);
     return {
       color: C.yellow,
-      title: `Goedkoper over ${h} uur`,
-      subtitle: `${money(cheaperSoon.price)} verwacht`,
+      title: changeTitle("Goedkoper", cheaperSoon.readingDate),
+      subtitle: `${money(cheaperSoon.price)} om ${hourLabel(cheaperSoon.readingDate)}`,
     };
   }
 
@@ -143,23 +154,22 @@ function statusFor(rows, currentIndex) {
     return {
       color: C.red,
       title: "Duur nu",
-      subtitle: "Wachten loont niet meer vandaag",
+      subtitle: "Wachten loont niet",
     };
   }
 
   if (moreExpensiveSoon) {
-    const h = hoursUntil(moreExpensiveSoon.readingDate);
     return {
       color: C.green,
-      title: "Goed moment",
-      subtitle: `Duurder over ${h} uur`,
+      title: changeTitle("Duurder", moreExpensiveSoon.readingDate),
+      subtitle: `${money(moreExpensiveSoon.price)} om ${hourLabel(moreExpensiveSoon.readingDate)}`,
     };
   }
 
   return {
     color: C.blue,
     title: "Prima prijs",
-    subtitle: "Geen grote daling verwacht",
+    subtitle: "Geen daling verwacht",
   };
 }
 
@@ -181,41 +191,41 @@ async function main() {
   rect(ctx, 0, 0, W, H, C.bg);
   rect(ctx, 70, 70, W - 140, H - 140, C.card);
 
-  text(ctx, "NU", 0, 145, W, 70, Font.heavySystemFont(58), C.orange, "center");
+  text(ctx, "NU", 0, 120, W, 82, Font.heavySystemFont(72), C.orange, "center");
   text(
     ctx,
     `${hour}:00`,
     0,
-    215,
+    205,
     W,
-    55,
-    Font.boldSystemFont(42),
-    C.muted,
+    64,
+    Font.boldSystemFont(50),
+    C.text,
     "center",
   );
 
   text(
     ctx,
     money(currentPrice),
-    70,
-    330,
-    W - 140,
-    140,
-    Font.heavySystemFont(112),
+    50,
+    315,
+    W - 100,
+    160,
+    Font.heavySystemFont(132),
     C.text,
     "center",
   );
 
-  circle(ctx, W / 2 - 42, 540, 84, status.color);
+  circle(ctx, W / 2 - 58, 530, 116, status.color);
 
   text(
     ctx,
     status.title,
-    100,
-    660,
-    W - 200,
-    75,
-    Font.heavySystemFont(54),
+    60,
+    670,
+    W - 120,
+    90,
+    Font.heavySystemFont(66),
     C.text,
     "center",
   );
@@ -223,12 +233,12 @@ async function main() {
   text(
     ctx,
     status.subtitle,
-    110,
-    735,
-    W - 220,
-    60,
-    Font.mediumSystemFont(36),
-    C.muted,
+    70,
+    760,
+    W - 140,
+    70,
+    Font.boldSystemFont(44),
+    C.text,
     "center",
   );
 

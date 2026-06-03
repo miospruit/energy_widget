@@ -3,7 +3,7 @@ const H = 950;
 
 const C = {
   bg: "#e9e6d8",
-  card: "#ffffff",
+  card: "#e9e6d8",
   text: "#4b5468",
   muted: "#4b546899",
   orange: "#ef7d17",
