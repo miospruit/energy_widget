@@ -63,9 +63,24 @@ function rect(ctx, x, y, w, h, color) {
   ctx.fillRect(new Rect(x, y, w, h));
 }
 
-function circle(ctx, x, y, size, color) {
+function hexagon(ctx, cx, cy, radius, color, rotation = Math.PI / 12) {
+  const path = new Path();
+
+  for (let i = 0; i < 6; i += 1) {
+    const angle = rotation + (Math.PI * 2 * i) / 6;
+    const point = new Point(
+      cx + Math.cos(angle) * radius,
+      cy + Math.sin(angle) * radius,
+    );
+
+    if (i === 0) path.move(point);
+    else path.addLine(point);
+  }
+
+  path.closeSubpath();
   ctx.setFillColor(new Color(color));
-  ctx.fillEllipse(new Rect(x, y, size, size));
+  ctx.addPath(path);
+  ctx.fillPath();
 }
 
 function isTodayRow(row) {
@@ -234,7 +249,7 @@ async function main() {
     "center",
   );
 
-  circle(ctx, W / 2 - 58, 530, 116, status.color);
+  hexagon(ctx, W / 2 + 150, 610, 280, `${status.color}66`);
 
   text(
     ctx,
