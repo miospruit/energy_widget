@@ -301,61 +301,21 @@ function drawHand(ctx, cx, cy, angle, radius, color, width, tail = 0) {
   line(ctx, back.x, back.y, tip.x, tip.y, color, width);
 }
 
-function priceBand(price, scale) {
-  if (!Number.isFinite(price)) return "missing";
-  if (price <= 0) return "cheap";
+function drawPriceRim(ctx, cx, cy, radius, slots, scale) {
+  const gap = 0.018;
 
-  const normalized = (price - scale.min) / (scale.max - scale.min);
-
-  if (normalized < scale.avg) return "cheap";
-  if (normalized > scale.high) return "expensive";
-
-  return "normal";
-}
-
-function drawPriceArcs(ctx, cx, cy, radius, slots, scale) {
-  let arcStart = null;
-  let arcEnd = null;
-
-  function drawPriceArc(start, end) {
-    let startAngle = angleForDate(start);
-    let endAngle = angleForDate(end);
+  slots.forEach((slot) => {
+    const start = new Date(slot.readingDate);
+    const end = new Date(start.getTime() + 15 * 60 * 1000);
+    let startAngle = angleForDate(start) + gap;
+    let endAngle = angleForDate(end) - gap;
+    const color = Number.isFinite(slot.price)
+      ? colorFor(slot.price, scale)
+      : `${C.muted}55`;
 
     if (endAngle < startAngle) endAngle += Math.PI * 2;
 
-    arc(ctx, cx, cy, radius, startAngle, endAngle, C.blue, 12);
-  }
-
-  slots.forEach((slot) => {
-    const band = priceBand(slot.price, scale);
-    const start = new Date(slot.readingDate);
-    const end = new Date(start.getTime() + 15 * 60 * 1000);
-
-    if (band === "cheap") {
-      if (!arcStart) arcStart = start;
-      arcEnd = end;
-      return;
-    }
-
-    if (arcStart && arcEnd) {
-      drawPriceArc(arcStart, arcEnd);
-    }
-
-    arcStart = null;
-    arcEnd = null;
-  });
-
-  if (arcStart && arcEnd) {
-    drawPriceArc(arcStart, arcEnd);
-  }
-}
-
-function drawExpensiveDots(ctx, cx, cy, radius, slots, scale) {
-  slots.forEach((slot) => {
-    if (priceBand(slot.price, scale) !== "expensive") return;
-
-    const p = point(cx, cy, radius, angleForDate(slot.readingDate));
-    ellipse(ctx, p.x - 7, p.y - 7, 14, 14, C.orange);
+    arc(ctx, cx, cy, radius, startAngle, endAngle, color, 11);
   });
 }
 
@@ -423,8 +383,7 @@ function drawClock(ctx, slots, currentRow, rows) {
     8,
   );
 
-  drawPriceArcs(ctx, cx, cy, radius - 8, slots, scale);
-  drawExpensiveDots(ctx, cx, cy, radius - 28, slots, scale);
+  drawPriceRim(ctx, cx, cy, radius - 8, slots, scale);
 
   for (let i = 0; i < 60; i += 1) {
     const angle = (i / 60) * Math.PI * 2 - Math.PI / 2;
