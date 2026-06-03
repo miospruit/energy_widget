@@ -19,19 +19,27 @@ const now = new Date();
 const nf = ["nl-NL", { style: "currency", currency: "EUR" }];
 
 const today = [now.getFullYear(), now.getMonth(), now.getDate()];
-const start = encodeURIComponent(new Date(...today).toISOString());
-const end = encodeURIComponent(
-  new Date(...today, 23, 59, 59, 999).toISOString(),
-);
+const todayStart = new Date(...today);
+const tomorrowStart = new Date(today[0], today[1], today[2] + 1);
+
+function apiDate(date) {
+  const dd = String(date.getDate()).padStart(2, "0");
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const yyyy = date.getFullYear();
+
+  return `${dd}-${mm}-${yyyy}`;
+}
 
 function url() {
+  const params = [
+    `date=${apiDate(todayStart)}`,
+    "interval=INTERVAL_QUARTER",
+    "energy_type=ENERGY_TYPE_ELECTRICITY",
+  ];
+
   return [
-    "https://api.energyzero.nl/v1/energyprices?",
-    `fromDate=${start}&`,
-    `tillDate=${end}&`,
-    "interval=4&",
-    "usageType=1&",
-    "inclBtw=true",
+    "https://public.api.energyzero.nl/v1/prices?",
+    params.join("&"),
   ].join("");
 }
 
@@ -60,6 +68,11 @@ function circle(ctx, x, y, size, color) {
   ctx.fillEllipse(new Rect(x, y, size, size));
 }
 
+function isTodayRow(row) {
+  const start = new Date(row.readingDate);
+  return start >= todayStart && start < tomorrowStart;
+}
+
 function normalizeRows(res) {
   const allIn = res.all_in_with_vat || res.allInWithVat;
 
@@ -71,6 +84,7 @@ function normalizeRows(res) {
         price: Number(x.price?.value ?? x.price),
       }))
       .filter((x) => x.readingDate && Number.isFinite(x.price))
+      .filter(isTodayRow)
       .sort((a, b) => new Date(a.readingDate) - new Date(b.readingDate));
   }
 
@@ -81,6 +95,7 @@ function normalizeRows(res) {
       price: Number(x.price),
     }))
     .filter((x) => x.readingDate && Number.isFinite(x.price))
+    .filter(isTodayRow)
     .sort((a, b) => new Date(a.readingDate) - new Date(b.readingDate));
 }
 
@@ -94,7 +109,7 @@ function findCurrentIndex(rows) {
     const start = new Date(row.readingDate);
     const end = row.endDate
       ? new Date(row.endDate)
-      : new Date(start.getTime() + 60 * 60 * 1000);
+      : new Date(start.getTime() + 15 * 60 * 1000);
 
     return now >= start && now < end;
   });
@@ -102,21 +117,25 @@ function findCurrentIndex(rows) {
   return index >= 0 ? index : rows.length - 1;
 }
 
-function hoursUntil(date) {
+function minutesUntil(date) {
   const ms = new Date(date) - now;
-  return Math.max(0, Math.ceil(ms / (60 * 60 * 1000)));
+  return Math.max(0, Math.ceil(ms / (60 * 1000)));
 }
 
-function hourLabel(date) {
-  return `${new Date(date).getHours()}:00`;
+function timeLabel(date) {
+  const d = new Date(date);
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+
+  return `${hh}:${mm}`;
 }
 
 function changeTitle(label, date) {
-  const ms = new Date(date) - now;
+  const minutes = minutesUntil(date);
 
-  if (ms < 60 * 60 * 1000) return `${label} binnen 1u`;
+  if (minutes < 60) return `${label} over ${minutes}m`;
 
-  return `${label} over ${hoursUntil(date)}u`;
+  return `${label} over ${Math.ceil(minutes / 60)}u`;
 }
 
 function statusFor(rows, currentIndex) {
@@ -146,7 +165,7 @@ function statusFor(rows, currentIndex) {
     return {
       color: C.yellow,
       title: changeTitle("Goedkoper", cheaperSoon.readingDate),
-      subtitle: `${money(cheaperSoon.price)} om ${hourLabel(cheaperSoon.readingDate)}`,
+      subtitle: `${money(cheaperSoon.price)} om ${timeLabel(cheaperSoon.readingDate)}`,
     };
   }
 
@@ -162,7 +181,7 @@ function statusFor(rows, currentIndex) {
     return {
       color: C.green,
       title: changeTitle("Duurder", moreExpensiveSoon.readingDate),
-      subtitle: `${money(moreExpensiveSoon.price)} om ${hourLabel(moreExpensiveSoon.readingDate)}`,
+      subtitle: `${money(moreExpensiveSoon.price)} om ${timeLabel(moreExpensiveSoon.readingDate)}`,
     };
   }
 
@@ -180,7 +199,6 @@ async function main() {
   const currentIndex = findCurrentIndex(rows);
   const currentRow = rows[currentIndex];
   const currentPrice = currentRow.price;
-  const hour = new Date(currentRow.readingDate).getHours();
 
   const status = statusFor(rows, currentIndex);
 
@@ -194,7 +212,7 @@ async function main() {
   text(ctx, "NU", 0, 120, W, 82, Font.heavySystemFont(72), C.orange, "center");
   text(
     ctx,
-    `${hour}:00`,
+    timeLabel(currentRow.readingDate),
     0,
     205,
     W,

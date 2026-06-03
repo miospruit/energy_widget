@@ -19,21 +19,29 @@ const now = new Date();
 const day = now.toLocaleDateString("nl-NL", { weekday: "long" }).toUpperCase();
 
 const today = [now.getFullYear(), now.getMonth(), now.getDate()];
-const start = encodeURIComponent(new Date(...today).toISOString());
-const end = encodeURIComponent(
-  new Date(...today, 23, 59, 59, 999).toISOString(),
-);
+const todayStart = new Date(...today);
+const tomorrowStart = new Date(today[0], today[1], today[2] + 1);
 
 const nf = ["nl-NL", { style: "currency", currency: "EUR" }];
 
+function apiDate(date) {
+  const dd = String(date.getDate()).padStart(2, "0");
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const yyyy = date.getFullYear();
+
+  return `${dd}-${mm}-${yyyy}`;
+}
+
 function url(gas = false) {
+  const params = [
+    `date=${apiDate(todayStart)}`,
+    `interval=${gas ? "INTERVAL_DAY" : "INTERVAL_QUARTER"}`,
+    `energy_type=${gas ? "ENERGY_TYPE_GAS" : "ENERGY_TYPE_ELECTRICITY"}`,
+  ];
+
   return [
-    "https://api.energyzero.nl/v1/energyprices?",
-    `fromDate=${start}&`,
-    `tillDate=${end}&`,
-    "interval=4&",
-    `usageType=${gas ? "3" : "1"}&`,
-    "inclBtw=true",
+    "https://public.api.energyzero.nl/v1/prices?",
+    params.join("&"),
   ].join("");
 }
 
@@ -57,6 +65,11 @@ function rect(ctx, x, y, w, h, color) {
   ctx.fillRect(new Rect(x, y, w, h));
 }
 
+function isTodayRow(row) {
+  const start = new Date(row.readingDate);
+  return start >= todayStart && start < tomorrowStart;
+}
+
 function normalizeRows(res) {
   const allIn = res.all_in_with_vat || res.allInWithVat;
 
@@ -68,6 +81,7 @@ function normalizeRows(res) {
         price: Number(x.price?.value ?? x.price),
       }))
       .filter((x) => x.readingDate && Number.isFinite(x.price))
+      .filter(isTodayRow)
       .sort((a, b) => new Date(a.readingDate) - new Date(b.readingDate));
   }
 
@@ -78,6 +92,7 @@ function normalizeRows(res) {
       price: Number(x.price),
     }))
     .filter((x) => x.readingDate && Number.isFinite(x.price))
+    .filter(isTodayRow)
     .sort((a, b) => new Date(a.readingDate) - new Date(b.readingDate));
 }
 
@@ -100,11 +115,19 @@ function findCurrentRow(rows) {
       const start = new Date(row.readingDate);
       const end = row.endDate
         ? new Date(row.endDate)
-        : new Date(start.getTime() + 60 * 60 * 1000);
+        : new Date(start.getTime() + 15 * 60 * 1000);
 
       return now >= start && now < end;
     }) ?? rows[rows.length - 1]
   );
+}
+
+function timeLabel(date) {
+  const d = new Date(date);
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+
+  return `${hh}:${mm}`;
 }
 
 async function main() {
@@ -115,7 +138,6 @@ async function main() {
   const prices = priceRows.map((x) => x.price);
   const currentRow = findCurrentRow(priceRows);
   const currentPrice = currentRow.price;
-  const currentHourLabel = new Date(currentRow.readingDate).getHours();
 
   const gasRow = findCurrentRow(gasRows);
   const gasPrice = gasRow?.price ?? NaN;
@@ -152,7 +174,7 @@ async function main() {
   text(ctx, "NU", 130, 300, 160, 70, Font.heavySystemFont(60), C.orange);
   text(
     ctx,
-    `${currentHourLabel}:00`,
+    timeLabel(currentRow.readingDate),
     130,
     372,
     220,
@@ -214,8 +236,9 @@ async function main() {
     const rowStart = new Date(row.readingDate);
     const rowEnd = row.endDate
       ? new Date(row.endDate)
-      : new Date(rowStart.getTime() + 60 * 60 * 1000);
+      : new Date(rowStart.getTime() + 15 * 60 * 1000);
     const rowHour = rowStart.getHours();
+    const rowMinute = rowStart.getMinutes();
 
     const active = now >= rowStart && now < rowEnd;
 
@@ -246,17 +269,18 @@ async function main() {
       rect(ctx, x, y, barW, h, color);
     }
 
-    const showLabel = active || rowHour % 3 === 0 || rowHour === 23;
+    const showLabel =
+      active || (rowMinute === 0 && (rowHour % 3 === 0 || rowHour === 23));
 
     if (showLabel) {
       text(
         ctx,
-        String(rowHour),
+        active ? timeLabel(row.readingDate) : String(rowHour),
         x - 10,
         gy + gh + 28,
-        barW + 20,
+        active ? barW + 70 : barW + 20,
         48,
-        active ? Font.heavySystemFont(44) : Font.boldSystemFont(34),
+        active ? Font.heavySystemFont(34) : Font.boldSystemFont(34),
         active ? C.orange : C.text,
         "center",
       );
