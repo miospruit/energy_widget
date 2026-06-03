@@ -302,13 +302,11 @@ function drawHand(ctx, cx, cy, angle, radius, color, width, tail = 0) {
 }
 
 function drawPriceRim(ctx, cx, cy, radius, slots, scale) {
-  const gap = 0.018;
-
   slots.forEach((slot) => {
     const start = new Date(slot.readingDate);
     const end = new Date(start.getTime() + 15 * 60 * 1000);
-    let startAngle = angleForDate(start) + gap;
-    let endAngle = angleForDate(end) - gap;
+    let startAngle = angleForDate(start);
+    let endAngle = angleForDate(end);
     const color = Number.isFinite(slot.price)
       ? colorFor(slot.price, scale)
       : `${C.muted}55`;
